@@ -2370,7 +2370,7 @@ fn decode_tile_from_plan(
     // §G reconstruct (see below). When every component shares one kernel
     // one lane is empty and `comp_lane` is the identity within the other.
     let mut planes_5x3: Vec<Vec<i32>> = Vec::new();
-    let mut planes_9x7: Vec<Vec<f64>> = Vec::new();
+    let mut planes_9x7: Vec<Vec<f32>> = Vec::new();
     let mut comp_lane: Vec<(WaveletTransform, usize)> = Vec::with_capacity(levels_per_comp.len());
     for (c, levels) in levels_per_comp.iter().enumerate() {
         let cc = comp_coding.get(c).ok_or(Error::InvalidMarkerLength)?;
@@ -2490,7 +2490,9 @@ fn decode_tile_from_plan(
                     return Err(Error::InvalidMarkerLength);
                 }
                 comp_lane.push((WaveletTransform::Irreversible9x7, planes_9x7.len()));
-                planes_9x7.push(grid.data);
+                // Annex G consumes f32. Convert each completed plane before
+                // decoding the next component so no finished f64 plane is retained.
+                planes_9x7.push(grid.data.into_iter().map(|v| v as f32).collect());
             }
             WaveletTransform::Reserved(_) => return Err(Error::NotImplemented),
         }
@@ -2568,7 +2570,7 @@ fn decode_tile_from_plan(
         reconstruct_tile_components_5x3_multi(&mut refs, &desc_5x3, mode)?;
     }
 
-    // Reconstruct the 9-7 lane (`f64` → `f32` → `i32`) when populated.
+    // Reconstruct the 9-7 lane (`f32` → `i32`) when populated.
     let outputs_9x7: Vec<Vec<i32>> = if planes_9x7.is_empty() {
         Vec::new()
     } else {
@@ -2581,11 +2583,8 @@ fn decode_tile_from_plan(
                 _ => return Err(Error::NotImplemented),
             }
         };
-        let mut comps_f32: Vec<Vec<f32>> = planes_9x7
-            .iter()
-            .map(|p| p.iter().map(|&v| v as f32).collect())
-            .collect();
-        let mut outputs: Vec<Vec<i32>> = planes_9x7.iter().map(|p| vec![0i32; p.len()]).collect();
+        let mut comps_f32: Vec<Vec<f32>> = planes_9x7;
+        let mut outputs: Vec<Vec<i32>> = comps_f32.iter().map(|p| vec![0i32; p.len()]).collect();
         let mut comp_refs: Vec<&mut [f32]> =
             comps_f32.iter_mut().map(|v| v.as_mut_slice()).collect();
         let mut out_refs: Vec<&mut [i32]> = outputs.iter_mut().map(|v| v.as_mut_slice()).collect();
